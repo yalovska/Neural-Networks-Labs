@@ -1,0 +1,136 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import tensorflow as tf
+from sklearn.metrics import confusion_matrix
+import ssl
+
+ssl._create_default_https_context = ssl._create_unverified_context
+
+# Налаштування
+tf.random.set_seed(42)
+np.random.seed(42)
+plt.style.use('seaborn-v0_8')
+
+print("--- Завантаження та підготовка даних MNIST ---")
+
+# 1. Завантаження даних
+(x_train, y_train), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
+
+# 2. Попередня обробка
+x_train = x_train.astype("float32") / 255.0
+x_test = x_test.astype("float32") / 255.0
+
+x_train = np.expand_dims(x_train, -1)
+x_test = np.expand_dims(x_test, -1)
+
+print(f"Розмір тренувальних даних: {x_train.shape}")
+print(f"Розмір тестових даних: {x_test.shape}")
+
+
+# 3. Функція для створення архітектури CNN
+def build_cnn_model():
+    # Використовуємо повний шлях tf.keras...
+    model = tf.keras.models.Sequential([
+        tf.keras.layers.Conv2D(32, (3, 3), activation='relu', input_shape=(28, 28, 1)),
+        tf.keras.layers.MaxPooling2D((2, 2)),
+
+        tf.keras.layers.Conv2D(64, (3, 3), activation='relu'),
+        tf.keras.layers.MaxPooling2D((2, 2)),
+
+        tf.keras.layers.Flatten(),
+        tf.keras.layers.Dense(64, activation='relu'),
+        tf.keras.layers.Dropout(0.5),
+        tf.keras.layers.Dense(10, activation='softmax')
+    ])
+    return model
+
+
+# 4. Експеримент: Порівняння оптимізаторів
+optimizers_to_test = {
+    'Adam': tf.keras.optimizers.Adam(),
+    'SGD': tf.keras.optimizers.SGD(learning_rate=0.01, momentum=0.9)
+}
+
+history_dict = {}
+trained_models = {}
+
+print("\n--- Початок навчання моделей ---")
+
+for opt_name, opt_obj in optimizers_to_test.items():
+    print(f"\nНавчання з оптимізатором: {opt_name}...")
+
+    model = build_cnn_model()
+
+    model.compile(optimizer=opt_obj,
+                  loss='sparse_categorical_crossentropy',
+                  metrics=['accuracy'])
+
+    history = model.fit(x_train, y_train, epochs=3, batch_size=64,
+                        validation_data=(x_test, y_test), verbose=1)
+
+    history_dict[opt_name] = history
+    trained_models[opt_name] = model
+
+# 5. Візуалізація
+plt.figure(figsize=(12, 5))
+
+plt.subplot(1, 2, 1)
+for name, history in history_dict.items():
+    plt.plot(history.history['val_accuracy'], label=f'{name} Val Acc')
+    plt.plot(history.history['accuracy'], linestyle='--', alpha=0.5, label=f'{name} Train Acc')
+plt.title('Динаміка точності (Accuracy)')
+plt.xlabel('Epochs')
+plt.ylabel('Accuracy')
+plt.legend()
+
+plt.subplot(1, 2, 2)
+for name, history in history_dict.items():
+    plt.plot(history.history['val_loss'], label=f'{name} Val Loss')
+plt.title('Динаміка функції втрат (Loss)')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+
+plt.tight_layout()
+plt.show()
+
+# 6. Матриця плутанини
+best_model_name = 'Adam'
+best_model = trained_models[best_model_name]
+
+print(f"\n--- Розрахунок матриці плутанини для {best_model_name} ---")
+y_pred_probs = best_model.predict(x_test)
+y_pred = np.argmax(y_pred_probs, axis=1)
+
+cm = confusion_matrix(y_test, y_pred)
+
+plt.figure(figsize=(10, 8))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', cbar=False)
+plt.title(f'Confusion Matrix ({best_model_name} Optimizer)')
+plt.xlabel('Predicted Label')
+plt.ylabel('True Label')
+plt.show()
+
+# 7. Перевірка на випадкових зображеннях
+print("\n--- Перевірка на випадкових зображеннях з тесту ---")
+num_images = 5
+random_indices = np.random.choice(len(x_test), num_images, replace=False)
+
+plt.figure(figsize=(15, 3))
+for i, idx in enumerate(random_indices):
+    img = x_test[idx]
+    true_label = y_test[idx]
+
+    pred_prob = best_model.predict(np.expand_dims(img, 0), verbose=0)
+    pred_label = np.argmax(pred_prob)
+
+    plt.subplot(1, num_images, i + 1)
+    plt.imshow(img.squeeze(), cmap='gray')
+    color = 'green' if pred_label == true_label else 'red'
+    plt.title(f"True: {true_label}\nPred: {pred_label}", color=color)
+    plt.axis('off')
+
+plt.show()
+
+print("\nЗавдання 2 виконано успішно.")
