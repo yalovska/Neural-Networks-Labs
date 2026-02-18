@@ -1,0 +1,159 @@
+import matplotlib.pyplot as plt
+import seaborn as sns
+import tensorflow as tf
+import numpy as np
+from sklearn.metrics import confusion_matrix
+import ssl
+
+# 1. ВИПРАВЛЕННЯ SSL
+ssl._create_default_https_context = ssl._create_unverified_context
+
+# Налаштування
+tf.random.set_seed(42)
+np.random.seed(42)
+plt.style.use('seaborn-v0_8')
+
+print("--- КРОК 1: Завантаження вбудованого датасету (CIFAR-100) ---")
+
+(x_train_all, y_train_all), (x_test_all, y_test_all) = tf.keras.datasets.cifar100.load_data()
+
+print(f"Загальний розмір: {x_train_all.shape}")
+
+# 2. Фільтрація: залишаємо тільки ФРУКТИ
+# Індекси фруктів у CIFAR-100:
+# 0: apple, 51: mushroom, 53: orange, 57: pear, 83: sweet_pepper
+FRUIT_IDS = [0, 51, 53, 57, 83]
+FRUIT_NAMES = ['Apple', 'Mushroom', 'Orange', 'Pear', 'Pepper']
+
+print(f"--- КРОК 2: Відбір класів: {FRUIT_NAMES} ---")
+
+
+def filter_fruits(x, y):
+    # Шукаємо індекси, де мітка є серед наших фруктів
+    # np.isin повертає True/False масив
+    mask = np.isin(y, FRUIT_IDS).flatten()
+
+    x_filtered = x[mask]
+    y_filtered = y[mask]
+
+    # Тепер треба переробити мітки.
+    # Наприклад, apple (0) -> 0, orange (53) -> 2.
+    y_new = np.zeros_like(y_filtered)
+    for new_idx, old_idx in enumerate(FRUIT_IDS):
+        y_new[y_filtered == old_idx] = new_idx
+
+    return x_filtered, y_new
+
+
+x_train, y_train = filter_fruits(x_train_all, y_train_all)
+x_test, y_test = filter_fruits(x_test_all, y_test_all)
+
+# Нормалізація (0-255 -> 0-1)
+x_train = x_train.astype("float32") / 255.0
+x_test = x_test.astype("float32") / 255.0
+
+print(f"Розмір тренувальних даних (фрукти): {x_train.shape}")
+print(f"Розмір тестових даних (фрукти): {x_test.shape}")
+
+
+# 3. Побудова Архітектури CNN
+def build_fruit_cnn(num_classes):
+    model = tf.keras.models.Sequential([
+        # Вхід 32x32x3 (розмір CIFAR)
+        tf.keras.layers.Conv2D(32, (3, 3), activation='relu', padding='same', input_shape=(32, 32, 3)),
+        tf.keras.layers.MaxPooling2D((2, 2)),
+
+        tf.keras.layers.Conv2D(64, (3, 3), activation='relu', padding='same'),
+        tf.keras.layers.MaxPooling2D((2, 2)),
+
+        tf.keras.layers.Conv2D(128, (3, 3), activation='relu', padding='same'),
+        tf.keras.layers.MaxPooling2D((2, 2)),
+
+        tf.keras.layers.Flatten(),
+        tf.keras.layers.Dense(128, activation='relu'),
+        tf.keras.layers.Dropout(0.5),
+        tf.keras.layers.Dense(num_classes, activation='softmax')
+    ])
+    return model
+
+
+# 4. Навчання
+optimizers_to_test = {
+    'Adam': tf.keras.optimizers.Adam(),
+    'SGD': tf.keras.optimizers.SGD(learning_rate=0.01, momentum=0.9)
+}
+
+history_dict = {}
+trained_models = {}
+
+print("\n--- КРОК 3: Початок навчання моделей ---")
+
+for opt_name, opt_obj in optimizers_to_test.items():
+    print(f"\nTraining with {opt_name}...")
+    model = build_fruit_cnn(len(FRUIT_NAMES))
+    model.compile(optimizer=opt_obj,
+                  loss='sparse_categorical_crossentropy',
+                  metrics=['accuracy'])
+
+    # 10 епох, бо картинки малі (32х32), вчиться швидко
+    history = model.fit(x_train, y_train, epochs=10,
+                        validation_data=(x_test, y_test), verbose=1)
+
+    history_dict[opt_name] = history
+    trained_models[opt_name] = model
+
+# 5. Візуалізація
+plt.figure(figsize=(12, 5))
+
+plt.subplot(1, 2, 1)
+for name, history in history_dict.items():
+    plt.plot(history.history['val_accuracy'], label=f'{name} Val Acc')
+plt.title('Accuracy Comparison')
+plt.xlabel('Epochs')
+plt.legend()
+
+plt.subplot(1, 2, 2)
+for name, history in history_dict.items():
+    plt.plot(history.history['val_loss'], label=f'{name} Val Loss')
+plt.title('Loss Comparison')
+plt.xlabel('Epochs')
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# 6. Матриця плутанини
+best_model = trained_models['Adam']
+print("\n--- КРОК 4: Матриця плутанини ---")
+
+y_pred_probs = best_model.predict(x_test, verbose=0)
+y_pred = np.argmax(y_pred_probs, axis=1)
+
+cm = confusion_matrix(y_test, y_pred)
+
+plt.figure(figsize=(8, 7))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Greens',
+            xticklabels=FRUIT_NAMES, yticklabels=FRUIT_NAMES)
+plt.title('Confusion Matrix (CIFAR-100 Fruits)')
+plt.xlabel('Predicted')
+plt.ylabel('True')
+plt.show()
+
+# 7. Перевірка на випадкових фото
+print("\n--- КРОК 5: Перевірка на випадкових зображеннях ---")
+plt.figure(figsize=(15, 4))
+random_indices = np.random.choice(len(x_test), 5, replace=False)
+
+for i, idx in enumerate(random_indices):
+    ax = plt.subplot(1, 5, i + 1)
+    img = x_test[idx]
+
+    true_label = FRUIT_NAMES[int(y_test[idx])]
+    pred_label = FRUIT_NAMES[y_pred[idx]]
+
+    plt.imshow(img)
+    color = 'green' if true_label == pred_label else 'red'
+    plt.title(f"True: {true_label}\nPred: {pred_label}", color=color)
+    plt.axis("off")
+
+plt.show()
+print("\nЗавдання 3 (версія CIFAR) виконано успішно.")
