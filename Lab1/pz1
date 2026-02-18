@@ -1,0 +1,203 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.linear_model import LinearRegression
+from sklearn.neural_network import MLPClassifier  
+from sklearn.metrics import accuracy_score
+
+# Налаштування стилю графіків
+plt.style.use('seaborn-v0_8')
+np.random.seed(42)  
+
+
+# ==========================================
+# 1. КЛАС ПЕРЦЕПТРОНА (Ручна реалізація)
+# ==========================================
+class CustomPerceptron:
+    def __init__(self, learning_rate=0.01, epochs=1000, activation='step'):
+        self.lr = learning_rate
+        self.epochs = epochs
+        self.weights = None
+        self.bias = None
+        self.activation_name = activation
+
+    def _activate(self, x):
+        if self.activation_name == 'step':
+            return 1 if x >= 0 else 0
+        elif self.activation_name == 'sigmoid':
+            return 1 / (1 + np.exp(-x))
+        elif self.activation_name == 'relu':
+            return max(0, x)
+        return 1 if x >= 0 else 0
+
+    def fit(self, X, y):
+        n_samples, n_features = X.shape
+        self.weights = np.zeros(n_features)
+        self.bias = 0
+
+        # Перетворення міток для Sigmoid/ReLU (якщо потрібно м'яке навчання)
+        # Але для класичного перцептрона залишаємо 0/1
+
+        for _ in range(self.epochs):
+            for idx, x_i in enumerate(X):
+                linear_output = np.dot(x_i, self.weights) + self.bias
+
+                if self.activation_name == 'step':
+                    y_predicted = self._activate(linear_output)
+                    update = self.lr * (y[idx] - y_predicted)
+                else:
+                    # Проста імітація градієнтного кроку для інших функцій
+                    y_pred_raw = self._activate(linear_output)
+                    y_predicted = 1 if y_pred_raw >= 0.5 else 0
+                    update = self.lr * (y[idx] - y_pred_raw)
+
+                self.weights += update * x_i
+                self.bias += update
+
+    def predict(self, X):
+        linear_output = np.dot(X, self.weights) + self.bias
+        if self.activation_name == 'step':
+            return np.array([self._activate(x) for x in linear_output])
+        elif self.activation_name == 'sigmoid':
+            preds = 1 / (1 + np.exp(-linear_output))
+            return np.where(preds >= 0.5, 1, 0)
+        return np.where(linear_output >= 0, 1, 0)
+
+
+# ==========================================
+# ЧАСТИНА 1: ДВОВИМІРНИЙ ВИПАДОК (2D)
+# ==========================================
+print("--- ЧАСТИНА 1: 2D Класифікація та МНК ---")
+
+# 1.1 Генерація даних (Гауссівський розподіл)
+mean1, cov1 = [1, 3], [[1.5, 0], [0, 1.5]]
+mean2, cov2 = [4, -1], [[1.5, 0], [0, 1.5]]
+
+X1 = np.random.multivariate_normal(mean1, cov1, 100)  # Клас 0 (Healthy)
+X2 = np.random.multivariate_normal(mean2, cov2, 100)  # Клас 1 (Unhealthy)
+
+X_2d = np.vstack((X1, X2))
+y_2d = np.array([0] * 100 + [1] * 100)
+
+# 1.2 Лінійна регресія (МНК)
+ols = LinearRegression()
+ols.fit(X_2d, y_2d)
+# Рівняння лінії регресії (boundary при y=0.5): w1*x1 + w2*x2 + b = 0.5
+# x2 = (0.5 - b - w1*x1) / w2
+
+# 1.3 Навчання Перцептрона (Step function)
+perceptron_step = CustomPerceptron(activation='step')
+perceptron_step.fit(X_2d, y_2d)
+acc = accuracy_score(y_2d, perceptron_step.predict(X_2d))
+print(f"Точність Перцептрона (Step): {acc * 100:.2f}%")
+print(f"Ваги: {perceptron_step.weights}, Bias: {perceptron_step.bias}")
+
+# 1.4 Порівняння функцій активації
+print("\nПорівняння функцій активації:")
+for act in ['step', 'sigmoid']:
+    p = CustomPerceptron(activation=act, epochs=500)
+    p.fit(X_2d, y_2d)
+    print(f"Activation: {act}, Accuracy: {accuracy_score(y_2d, p.predict(X_2d)) * 100:.2f}%")
+
+# Візуалізація Частини 1
+plt.figure(figsize=(10, 6))
+plt.scatter(X1[:, 0], X1[:, 1], c='green', label='Healthy Leaves (Class 0)')
+plt.scatter(X2[:, 0], X2[:, 1], c='red', label='Unhealthy Leaves (Class 1)')
+
+# Лінія МНК
+x_vals = np.linspace(-2, 7, 100)
+y_ols = (0.5 - ols.intercept_ - ols.coef_[0] * x_vals) / ols.coef_[1]
+plt.plot(x_vals, y_ols, 'k--', label='МНК (Linear Regression)', linewidth=2)
+
+# Лінія Перцептрона
+# w1*x1 + w2*x2 + b = 0 => x2 = -(w1*x1 + b) / w2
+w = perceptron_step.weights
+b = perceptron_step.bias
+y_perc = -(w[0] * x_vals + b) / w[1]
+plt.plot(x_vals, y_perc, 'b-', label='Perceptron Decision Boundary', linewidth=2)
+
+plt.title('Рис 1. Порівняння МНК та Перцептрона (2D)')
+plt.xlabel('Feature 1')
+plt.ylabel('Feature 2')
+plt.legend()
+plt.show()
+
+# ==========================================
+# ЧАСТИНА 2: БАГАТОВИМІРНИЙ ВИПАДОК (3 Класи)
+# ==========================================
+print("\n--- ЧАСТИНА 2: Багатокласова класифікація (3 класи) ---")
+
+# Генерація 3-х кластерів
+X_c1 = np.random.multivariate_normal([0, 4], [[0.5, 0], [0, 0.5]], 50)
+X_c2 = np.random.multivariate_normal([-2, -2], [[0.5, 0], [0, 0.5]], 50)
+X_c3 = np.random.multivariate_normal([4, -2], [[0.5, 0], [0, 0.5]], 50)
+
+X_multi = np.vstack((X_c1, X_c2, X_c3))
+y_multi = np.array([0] * 50 + [1] * 50 + [2] * 50)
+
+# Використовуємо MLP (Багатошаровий перцептрон) для нелінійних/складних меж
+mlp = MLPClassifier(hidden_layer_sizes=(10,), max_iter=2000, random_state=42)
+mlp.fit(X_multi, y_multi)
+
+# Візуалізація областей рішень (Decision Regions)
+plt.figure(figsize=(10, 6))
+x_min, x_max = X_multi[:, 0].min() - 1, X_multi[:, 0].max() + 1
+y_min, y_max = X_multi[:, 1].min() - 1, X_multi[:, 1].max() + 1
+xx, yy = np.meshgrid(np.arange(x_min, x_max, 0.02),
+                     np.arange(y_min, y_max, 0.02))
+
+Z = mlp.predict(np.c_[xx.ravel(), yy.ravel()])
+Z = Z.reshape(xx.shape)
+
+plt.contourf(xx, yy, Z, alpha=0.3, cmap='coolwarm')
+plt.scatter(X_c1[:, 0], X_c1[:, 1], c='green', label='Class 1')
+plt.scatter(X_c2[:, 0], X_c2[:, 1], c='red', label='Class 2')
+plt.scatter(X_c3[:, 0], X_c3[:, 1], c='blue', label='Class 3')
+plt.title('Рис 2. Багатокласова класифікація (MLP)')
+plt.legend()
+plt.show()
+
+# ==========================================
+# ЧАСТИНА 3: ТРИВИМІРНИЙ ВИПАДОК (3D)
+# ==========================================
+print("\n--- ЧАСТИНА 3: 3D Класифікація ---")
+
+# Генерація 3D даних
+mean3d_1 = [1, 1, 1]
+mean3d_2 = [4, 4, 4]
+cov3d = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+
+X_3d_1 = np.random.multivariate_normal(mean3d_1, cov3d, 50)
+X_3d_2 = np.random.multivariate_normal(mean3d_2, cov3d, 50)
+
+X_3d = np.vstack((X_3d_1, X_3d_2))
+y_3d = np.array([0] * 50 + [1] * 50)
+
+# Навчання перцептрона для 3D
+perc_3d = CustomPerceptron()
+perc_3d.fit(X_3d, y_3d)
+
+# Візуалізація 3D
+fig = plt.figure(figsize=(10, 8))
+ax = fig.add_subplot(111, projection='3d')
+
+ax.scatter(X_3d_1[:, 0], X_3d_1[:, 1], X_3d_1[:, 2], c='blue', marker='^', label='Class 0')
+ax.scatter(X_3d_2[:, 0], X_3d_2[:, 1], X_3d_2[:, 2], c='red', marker='o', label='Class 1')
+
+# Побудова розділяючої площини: w1*x + w2*y + w3*z + b = 0
+# z = -(w1*x + w2*y + b) / w3
+w3d = perc_3d.weights
+b3d = perc_3d.bias
+
+xx, yy = np.meshgrid(np.linspace(-2, 6, 10), np.linspace(-2, 6, 10))
+zz = -(w3d[0] * xx + w3d[1] * yy + b3d) / w3d[2]
+
+ax.plot_surface(xx, yy, zz, alpha=0.3, color='gray')
+
+ax.set_xlabel('X Axis')
+ax.set_ylabel('Y Axis')
+ax.set_zlabel('Z Axis')
+plt.title('Рис 3. Класифікація у 3D просторі')
+plt.legend()
+plt.show()
+
+print("\nВсі завдання виконано. Графіки згенеровано.")
